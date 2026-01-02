@@ -215,8 +215,48 @@ const postOrder = async (
 
             Logger.info(`Best ask: ${minPriceAsk.size} @ $${minPriceAsk.price}`);
             if (parseFloat(minPriceAsk.price) - 0.05 > trade.price) {
-                Logger.warning('Price slippage too high - skipping trade');
-                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                Logger.warning(
+                    `Price slippage too high (>0.05) - placing Limit Order at Trader Price ($${trade.price})`
+                );
+
+                const limitPrice = trade.price;
+                const tokenSize = remaining / limitPrice;
+
+                if (tokenSize < MIN_ORDER_SIZE_TOKENS) {
+                    Logger.warning(
+                        `Calculated token size ${tokenSize.toFixed(2)} < minimum ${MIN_ORDER_SIZE_TOKENS} - skipping`
+                    );
+                    await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                    break;
+                }
+
+                try {
+                    const limitOrderArgs = {
+                        side: Side.BUY,
+                        tokenID: trade.asset,
+                        size: tokenSize,
+                        price: limitPrice,
+                    };
+
+                    Logger.info(
+                        `Creating Limit Order: ${tokenSize.toFixed(2)} tokens @ $${limitPrice}`
+                    );
+                    const signedOrder = await clobClient.createOrder(limitOrderArgs);
+                    const resp = await clobClient.postOrder(signedOrder, OrderType.GTC);
+
+                    if (resp.success) {
+                        Logger.success(`Limit Order placed successfully: ${resp.orderID}`);
+                        await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                        remaining = 0; // Stop the loop
+                    } else {
+                        const errorMessage = extractOrderError(resp);
+                        Logger.error(`Limit Order failed: ${errorMessage}`);
+                        await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                    }
+                } catch (error) {
+                    Logger.error(`Error placing Limit Order: ${error}`);
+                    await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                }
                 break;
             }
 
