@@ -125,12 +125,18 @@ const getReadyAggregatedTrades = (): AggregatedTrade[] => {
                 // Aggregation meets minimum and window passed - ready to execute
                 ready.push(agg);
             } else {
-                // Window passed but total too small - mark individual trades as skipped
+                // Window passed but total too small - place minimum order instead of skipping
                 Logger.info(
-                    `Trade aggregation for ${agg.userAddress} on ${agg.slug || agg.asset}: $${agg.totalUsdcSize.toFixed(2)} total from ${agg.trades.length} trades below minimum ($${TRADE_AGGREGATION_MIN_TOTAL_USD}) - skipping`
+                    `Trade aggregation for ${agg.userAddress} on ${agg.slug || agg.asset}: $${agg.totalUsdcSize.toFixed(2)} total from ${agg.trades.length} trades below minimum ($${TRADE_AGGREGATION_MIN_TOTAL_USD}) - placing minimum order`
                 );
-
-                // Mark all trades in this aggregation as processed (bot: true)
+                // 创建合成聚合交易，使用最小金额
+                const syntheticAgg: AggregatedTrade = {
+                    ...agg,
+                    totalUsdcSize: TRADE_AGGREGATION_MIN_TOTAL_USD,
+                    // 保持原来的平均价格用于下单
+                };
+                ready.push(syntheticAgg);
+                // 标记原始交易已处理
                 for (const trade of agg.trades) {
                     const UserActivity = getUserActivityModel(trade.userAddress);
                     UserActivity.updateOne({ _id: trade._id }, { bot: true }).exec();
