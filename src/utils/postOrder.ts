@@ -16,6 +16,7 @@ const COPY_SIZE = COPY_STRATEGY_CONFIG.copySize;
 // Polymarket minimum order sizes
 const MIN_ORDER_SIZE_USD = 1.0; // Minimum order size in USD for BUY orders
 const MIN_ORDER_SIZE_TOKENS = 1.0; // Minimum order size in tokens for SELL/MERGE orders
+const MIN_LIMIT_ORDER_SIZE_TOKENS = 5.0; // Minimum order size for GTC Limit Orders
 
 const extractOrderError = (response: unknown): string | undefined => {
     if (!response) {
@@ -217,32 +218,72 @@ const postOrder = async (
             Logger.info(`最佳卖单: ${minPriceAsk.size} @ $${minPriceAsk.price}`);
 
             // MAX PRICE CHECK
-            tokenID: trade.asset,
-                size: tokenSize,
-                    price: limitPrice,
+            const MAX_PRICE = 0.99; // Safety limit
+            if (parseFloat(minPriceAsk.price) > MAX_PRICE) {
+                Logger.warning(
+                    `价格 $${minPriceAsk.price} 高于最大限制 $${MAX_PRICE} - 跳过`
+                );
+                await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                break;
+            }
+
+            // SLIPPAGE CHECK & LIMIT ORDER FALLBACK
+            if (parseFloat(minPriceAsk.price) - 0.05 > trade.price) {
+                Logger.warning(
+                    `滑点过高 (>0.05) - 正在以交易员价格 ($${trade.price}) 挂限价单`
+                );
+
+                const limitPrice = trade.price;
+                let tokenSize = remaining / limitPrice;
+
+                // Limit orders have a higher minimum size (5 tokens)
+                if (tokenSize < MIN_LIMIT_ORDER_SIZE_TOKENS) {
+                    // Check if we can afford the minimum limit order size
+                    const minCost = MIN_LIMIT_ORDER_SIZE_TOKENS * limitPrice;
+                    if (my_balance >= minCost) {
+                         // Floor to minimum + 1% buffer
+                         tokenSize = MIN_LIMIT_ORDER_SIZE_TOKENS * 1.01;
+                         Logger.info(
+                            `调整限价单数量到 ${tokenSize.toFixed(2)} 代币以满足最小限制 (5 代币)`
+                         );
+                    } else {
+                        Logger.warning(
+                            `计算出的代币数量 ${tokenSize.toFixed(2)} < 最小数量 ${MIN_LIMIT_ORDER_SIZE_TOKENS} 且余额不足以支付最小限价单 ($${minCost.toFixed(2)}) - 跳过`
+                        );
+                        await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                        break;
+                    }
+                }
+
+                try {
+                    const limitOrderArgs = {
+                        side: Side.BUY,
+                        tokenID: trade.asset,
+                        size: tokenSize,
+                        price: limitPrice,
                     };
 
-        Logger.info(
-            `创建限价单: ${tokenSize.toFixed(2)} 代币 @ $${limitPrice}`
-        );
-        const signedOrder = await clobClient.createOrder(limitOrderArgs);
-        const resp = await clobClient.postOrder(signedOrder, OrderType.GTC);
+                    Logger.info(
+                        `创建限价单: ${tokenSize.toFixed(2)} 代币 @ $${limitPrice}`
+                    );
+                    const signedOrder = await clobClient.createOrder(limitOrderArgs);
+                    const resp = await clobClient.postOrder(signedOrder, OrderType.GTC);
 
-        if (resp.success) {
-            Logger.success(`限价单下单成功: ${resp.orderID}`);
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
-            remaining = 0; // Stop the loop
-        } else {
-            const errorMessage = extractOrderError(resp);
-            Logger.error(`限价单失败: ${errorMessage}`);
-            await UserActivity.updateOne({ _id: trade._id }, { bot: true });
-        }
-    } catch (error) {
-        Logger.error(`限价单下单错误: ${error}`);
-        await UserActivity.updateOne({ _id: trade._id }, { bot: true });
-    }
-    break;
-}
+                    if (resp.success) {
+                        Logger.success(`限价单下单成功: ${resp.orderID}`);
+                        await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                        remaining = 0; // Stop the loop
+                    } else {
+                        const errorMessage = extractOrderError(resp);
+                        Logger.error(`限价单失败: ${errorMessage}`);
+                        await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                    }
+                } catch (error) {
+                    Logger.error(`限价单下单错误: ${error}`);
+                    await UserActivity.updateOne({ _id: trade._id }, { bot: true });
+                }
+                break;
+            }
 
 const buyPrice = parseFloat(minPriceAsk.price);
 // Buy amount in USDC
