@@ -160,7 +160,9 @@ const fetchTradeData = async () => {
                 });
 
                 await newActivity.save();
-                Logger.info(`New trade detected for ${address.slice(0, 6)}...${address.slice(-4)}`);
+                Logger.info(
+                    `New trade detected for ${address.slice(0, 6)}...${address.slice(-4)} (Hash: ${activity.transactionHash})`
+                );
             }
 
             // Also fetch and update positions

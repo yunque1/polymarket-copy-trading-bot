@@ -290,76 +290,82 @@ const tradeExecutor = async (clobClient: ClobClient) => {
 
     let lastCheck = Date.now();
     while (isRunning) {
-        const trades = await readTempTrades();
+        try {
+            const trades = await readTempTrades();
 
-        if (TRADE_AGGREGATION_ENABLED) {
-            // Process with aggregation logic
-            if (trades.length > 0) {
-                Logger.clearLine();
-                Logger.info(
-                    `📥 ${trades.length} new trade${trades.length > 1 ? 's' : ''} detected`
-                );
+            if (TRADE_AGGREGATION_ENABLED) {
+                // Process with aggregation logic
+                if (trades.length > 0) {
+                    Logger.clearLine();
+                    Logger.info(
+                        `📥 ${trades.length} new trade${trades.length > 1 ? 's' : ''} detected`
+                    );
 
-                // Add trades to aggregation buffer
-                for (const trade of trades) {
-                    // Only aggregate BUY trades below minimum threshold
-                    if (trade.side === 'BUY' && trade.usdcSize < TRADE_AGGREGATION_MIN_TOTAL_USD) {
-                        Logger.info(
-                            `Adding $${trade.usdcSize.toFixed(2)} ${trade.side} trade to aggregation buffer for ${trade.slug || trade.asset}`
-                        );
-                        addToAggregationBuffer(trade);
-                    } else {
-                        // Execute large trades immediately (not aggregated)
-                        Logger.clearLine();
-                        Logger.header(`⚡ IMMEDIATE TRADE (above threshold)`);
-                        await doTrading(clobClient, [trade]);
-                    }
-                }
-                lastCheck = Date.now();
-            }
-
-            // Check for ready aggregated trades
-            const readyAggregations = getReadyAggregatedTrades();
-            if (readyAggregations.length > 0) {
-                Logger.clearLine();
-                Logger.header(
-                    `⚡ ${readyAggregations.length} AGGREGATED TRADE${readyAggregations.length > 1 ? 'S' : ''} READY`
-                );
-                await doAggregatedTrading(clobClient, readyAggregations);
-                lastCheck = Date.now();
-            }
-
-            // Update waiting message
-            if (trades.length === 0 && readyAggregations.length === 0) {
-                if (Date.now() - lastCheck > 300) {
-                    const bufferedCount = tradeAggregationBuffer.size;
-                    if (bufferedCount > 0) {
-                        Logger.waiting(
-                            USER_ADDRESSES.length,
-                            `${bufferedCount} trade group(s) pending`
-                        );
-                    } else {
-                        Logger.waiting(USER_ADDRESSES.length);
+                    // Add trades to aggregation buffer
+                    for (const trade of trades) {
+                        // Only aggregate BUY trades below minimum threshold
+                        if (trade.side === 'BUY' && trade.usdcSize < TRADE_AGGREGATION_MIN_TOTAL_USD) {
+                            Logger.info(
+                                `Adding $${trade.usdcSize.toFixed(2)} ${trade.side} trade to aggregation buffer for ${trade.slug || trade.asset}`
+                            );
+                            addToAggregationBuffer(trade);
+                        } else {
+                            // Execute large trades immediately (not aggregated)
+                            Logger.clearLine();
+                            Logger.header(`⚡ IMMEDIATE TRADE (above threshold)`);
+                            await doTrading(clobClient, [trade]);
+                        }
                     }
                     lastCheck = Date.now();
                 }
-            }
-        } else {
-            // Original non-aggregation logic
-            if (trades.length > 0) {
-                Logger.clearLine();
-                Logger.header(
-                    `⚡ ${trades.length} NEW TRADE${trades.length > 1 ? 'S' : ''} TO COPY`
-                );
-                await doTrading(clobClient, trades);
-                lastCheck = Date.now();
+
+                // Check for ready aggregated trades
+                const readyAggregations = getReadyAggregatedTrades();
+                if (readyAggregations.length > 0) {
+                    Logger.clearLine();
+                    Logger.header(
+                        `⚡ ${readyAggregations.length} AGGREGATED TRADE${readyAggregations.length > 1 ? 'S' : ''} READY`
+                    );
+                    await doAggregatedTrading(clobClient, readyAggregations);
+                    lastCheck = Date.now();
+                }
+
+                // Update waiting message
+                if (trades.length === 0 && readyAggregations.length === 0) {
+                    if (Date.now() - lastCheck > 300) {
+                        const bufferedCount = tradeAggregationBuffer.size;
+                        if (bufferedCount > 0) {
+                            Logger.waiting(
+                                USER_ADDRESSES.length,
+                                `${bufferedCount} trade group(s) pending`
+                            );
+                        } else {
+                            Logger.waiting(USER_ADDRESSES.length);
+                        }
+                        lastCheck = Date.now();
+                    }
+                }
             } else {
-                // Update waiting message every 300ms for smooth animation
-                if (Date.now() - lastCheck > 300) {
-                    Logger.waiting(USER_ADDRESSES.length);
+                // Original non-aggregation logic
+                if (trades.length > 0) {
+                    Logger.clearLine();
+                    Logger.header(
+                        `⚡ ${trades.length} NEW TRADE${trades.length > 1 ? 'S' : ''} TO COPY`
+                    );
+                    await doTrading(clobClient, trades);
                     lastCheck = Date.now();
+                } else {
+                    // Update waiting message every 300ms for smooth animation
+                    if (Date.now() - lastCheck > 300) {
+                        Logger.waiting(USER_ADDRESSES.length);
+                        lastCheck = Date.now();
+                    }
                 }
             }
+        } catch (error) {
+            Logger.error(`Error in trade executor loop: ${error}`);
+            // Wait a bit before retrying to avoid tight error loops
+            await new Promise((resolve) => setTimeout(resolve, 1000));
         }
 
         if (!isRunning) break;
