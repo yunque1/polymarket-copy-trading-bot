@@ -117,9 +117,10 @@ const fetchTradeData = async () => {
             }
 
             // Process each activity
+            const cutoffTime = Math.floor(Date.now() / 1000) - (TOO_OLD_TIMESTAMP * 3600);
             for (const activity of activities) {
                 // Skip if too old
-                if (activity.timestamp < TOO_OLD_TIMESTAMP) {
+                if (activity.timestamp < cutoffTime) {
                     continue;
                 }
 
@@ -231,22 +232,90 @@ const tradeMonitor = async () => {
     Logger.success(`正在监控 ${USER_ADDRESSES.length} 位交易员，每 ${FETCH_INTERVAL} 秒刷新一次`);
     Logger.separator();
 
-    // On first run, mark all existing historical trades as already processed
+    // On first run, fetch and mark all existing historical trades as already processed
     if (isFirstRun) {
-        Logger.info('首次运行: 正在将所有历史交易标记为已处理...');
-        for (const { address, UserActivity } of userModels) {
-            const count = await UserActivity.updateMany(
-                { bot: false },
-                { $set: { bot: true, botExcutedTime: 999 } }
-            );
-            if (count.modifiedCount > 0) {
-                Logger.info(
-                    `已将 ${count.modifiedCount} 条历史交易标记为已处理 (${address.slice(0, 6)}...${address.slice(-4)})`
-                );
+        Logger.info('首次运行: 正在获取并标记历史交易为已处理...');
+
+        for (const { address, UserActivity, UserPosition } of userModels) {
+            try {
+                // Fetch trade activities from Polymarket API
+                const apiUrl = `https://data-api.polymarket.com/activity?user=${address}&type=TRADE`;
+                const activities = await fetchData(apiUrl);
+
+                if (Array.isArray(activities) && activities.length > 0) {
+                    let newCount = 0;
+                    const cutoffTime = Math.floor(Date.now() / 1000) - (TOO_OLD_TIMESTAMP * 3600);
+
+                    for (const activity of activities) {
+                        // Skip if really old (though we are marking as processed anyway, 
+                        // keeping DB clean is good)
+                        if (activity.timestamp < cutoffTime) {
+                            continue;
+                        }
+
+                        // Check if exists
+                        const existing = await UserActivity.findOne({
+                            transactionHash: activity.transactionHash,
+                        }).exec();
+
+                        if (!existing) {
+                            // Save as ALREADY PROCESSED (bot: true)
+                            const newActivity = new UserActivity({
+                                proxyWallet: activity.proxyWallet,
+                                timestamp: activity.timestamp,
+                                conditionId: activity.conditionId,
+                                type: activity.type,
+                                size: activity.size,
+                                usdcSize: activity.usdcSize,
+                                transactionHash: activity.transactionHash,
+                                price: activity.price,
+                                asset: activity.asset,
+                                side: activity.side,
+                                outcomeIndex: activity.outcomeIndex,
+                                title: activity.title,
+                                slug: activity.slug,
+                                icon: activity.icon,
+                                eventSlug: activity.eventSlug,
+                                outcome: activity.outcome,
+                                name: activity.name,
+                                pseudonym: activity.pseudonym,
+                                bio: activity.bio,
+                                profileImage: activity.profileImage,
+                                profileImageOptimized: activity.profileImageOptimized,
+                                bot: true, // <--- CRITICAL: Mark as processed
+                                botExcutedTime: 999,
+                            });
+                            await newActivity.save();
+                            newCount++;
+                        }
+                    }
+                    if (newCount > 0) {
+                        Logger.info(
+                            `已初始化 ${newCount} 条历史交易为已处理 (${address.slice(0, 6)}...${address.slice(-4)})`
+                        );
+                    }
+                }
+
+                // Also fetch positions on init
+                const positionsUrl = `https://data-api.polymarket.com/positions?user=${address}`;
+                const positions = await fetchData(positionsUrl);
+                if (Array.isArray(positions) && positions.length > 0) {
+                    for (const position of positions) {
+                        await UserPosition.findOneAndUpdate(
+                            { asset: position.asset, conditionId: position.conditionId },
+                            position, // Save all fields
+                            { upsert: true }
+                        );
+                    }
+                }
+
+            } catch (error) {
+                Logger.error(`初始化历史数据失败 ${address}: ${error}`);
             }
         }
+
         isFirstRun = false;
-        Logger.success('\n历史交易已处理。现在仅监控新交易。');
+        Logger.success('\n历史交易初始化完成。现在仅监控新交易。');
         Logger.separator();
     }
 
