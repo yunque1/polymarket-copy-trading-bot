@@ -143,9 +143,18 @@ export function calculateOrderSize(
 
     // Step 5: Check minimum order size
     if (finalAmount < config.minOrderSizeUSD) {
-        belowMinimum = true;
-        reasoning += ` → Below minimum $${config.minOrderSizeUSD}`;
-        finalAmount = 0; // Don't execute
+        // User requested to default to minimum order size if calculated amount is too small
+        // Check if we can afford the minimum order size
+        if (config.minOrderSizeUSD <= maxAffordable) {
+            finalAmount = config.minOrderSizeUSD;
+            belowMinimum = true; // Still mark as below minimum for logging purposes
+            reasoning += ` → Below minimum, floored to $${config.minOrderSizeUSD}`;
+        } else {
+            // Cannot afford even the minimum order
+            finalAmount = 0;
+            belowMinimum = true;
+            reasoning += ` → Below minimum $${config.minOrderSizeUSD} and insufficient balance for minimum`;
+        }
     }
 
     return {
