@@ -309,6 +309,10 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                                 `添加 $${trade.usdcSize.toFixed(2)} ${trade.side} 交易到聚合缓冲区 (${trade.slug || trade.asset})`
                             );
                             addToAggregationBuffer(trade);
+
+                            // Mark as processing to prevent re-reading in next loop
+                            const UserActivity = getUserActivityModel(trade.userAddress);
+                            await UserActivity.updateOne({ _id: trade._id }, { $set: { botExcutedTime: 1 } });
                         } else {
                             // Execute large trades immediately (not aggregated)
                             Logger.clearLine();
