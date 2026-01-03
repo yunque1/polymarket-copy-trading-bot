@@ -11,7 +11,7 @@ const COPY_STRATEGY_CONFIG = ENV.COPY_STRATEGY_CONFIG;
 // Legacy parameters (for backward compatibility in SELL logic)
 const TRADE_MULTIPLIER = ENV.TRADE_MULTIPLIER;
 const COPY_PERCENTAGE = ENV.COPY_PERCENTAGE;
-const COPY_SIZE = ENV.COPY_SIZE;
+const COPY_SIZE = COPY_STRATEGY_CONFIG.copySize;
 
 // Polymarket minimum order sizes
 const MIN_ORDER_SIZE_USD = 1.0; // Minimum order size in USD for BUY orders
@@ -339,8 +339,10 @@ const postOrder = async (
 
                     // Check for insufficient balance/allowance
                     if (
-                        errorMessage.includes('Not enough collateral') ||
-                        errorMessage.includes('Not enough allowance')
+                        errorMessage && (
+                            errorMessage.includes('Not enough collateral') ||
+                            errorMessage.includes('Not enough allowance')
+                        )
                     ) {
                         abortDueToFunds = true;
                         Logger.warning(
