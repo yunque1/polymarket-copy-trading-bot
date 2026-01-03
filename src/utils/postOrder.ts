@@ -295,7 +295,16 @@ const postOrder = async (
             }
 
             // Calculate token size
-            const size = buyAmount / buyPrice;
+            let size = buyAmount / buyPrice;
+
+            // Fix for precision issues: if the resulting value is very close to MIN_ORDER_SIZE_USD, 
+            // add a small buffer to ensure it doesn't fall below $1 due to rounding.
+            if (size * buyPrice < MIN_ORDER_SIZE_USD * 1.05) {
+                const safeMinSize = MIN_ORDER_SIZE_USD * 1.01; // Target $1.01 to be safe
+                size = safeMinSize / buyPrice;
+                buyAmount = size * buyPrice; // Update buyAmount for logging
+                Logger.info(`Adjusting order size to $${buyAmount.toFixed(4)} to ensure minimum $1 requirement`);
+            }
 
             Logger.info(
                 `正在创建订单: $${buyAmount.toFixed(2)} @ $${buyPrice} (余额: $${my_balance.toFixed(2)})`
