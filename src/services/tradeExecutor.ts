@@ -127,7 +127,7 @@ const getReadyAggregatedTrades = (): AggregatedTrade[] => {
             } else {
                 // Window passed but total too small - place minimum order instead of skipping
                 Logger.info(
-                    `Trade aggregation for ${agg.userAddress} on ${agg.slug || agg.asset}: $${agg.totalUsdcSize.toFixed(2)} total from ${agg.trades.length} trades below minimum ($${TRADE_AGGREGATION_MIN_TOTAL_USD}) - placing minimum order`
+                    `聚合交易 ${agg.userAddress} 市场 ${agg.slug || agg.asset}: 总额 $${agg.totalUsdcSize.toFixed(2)} (来自 ${agg.trades.length} 笔交易) 低于最小限制 ($${TRADE_AGGREGATION_MIN_TOTAL_USD}) - 正在下单最小金额`
                 );
                 // 创建合成聚合交易，使用最小金额
                 const syntheticAgg: AggregatedTrade = {
@@ -210,11 +210,11 @@ const doTrading = async (clobClient: ClobClient, trades: TradeWithUser[]) => {
  */
 const doAggregatedTrading = async (clobClient: ClobClient, aggregatedTrades: AggregatedTrade[]) => {
     for (const agg of aggregatedTrades) {
-        Logger.header(`📊 AGGREGATED TRADE (${agg.trades.length} trades combined)`);
-        Logger.info(`Market: ${agg.slug || agg.asset}`);
-        Logger.info(`Side: ${agg.side}`);
-        Logger.info(`Total volume: $${agg.totalUsdcSize.toFixed(2)}`);
-        Logger.info(`Average price: $${agg.averagePrice.toFixed(4)}`);
+        Logger.header(`📊 聚合交易 (合并 ${agg.trades.length} 笔)`);
+        Logger.info(`市场: ${agg.slug || agg.asset}`);
+        Logger.info(`方向: ${agg.side}`);
+        Logger.info(`总额: $${agg.totalUsdcSize.toFixed(2)}`);
+        Logger.info(`均价: $${agg.averagePrice.toFixed(4)}`);
 
         // Mark all individual trades as being processed
         for (const trade of agg.trades) {
@@ -277,14 +277,14 @@ let isRunning = true;
  */
 export const stopTradeExecutor = () => {
     isRunning = false;
-    Logger.info('Trade executor shutdown requested...');
+    Logger.info('交易执行器已请求停止...');
 };
 
 const tradeExecutor = async (clobClient: ClobClient) => {
-    Logger.success(`Trade executor ready for ${USER_ADDRESSES.length} trader(s)`);
+    Logger.success(`交易执行器就绪，正在服务 ${USER_ADDRESSES.length} 位交易员`);
     if (TRADE_AGGREGATION_ENABLED) {
         Logger.info(
-            `Trade aggregation enabled: ${TRADE_AGGREGATION_WINDOW_SECONDS}s window, $${TRADE_AGGREGATION_MIN_TOTAL_USD} minimum`
+            `交易聚合已启用: ${TRADE_AGGREGATION_WINDOW_SECONDS}秒窗口, 最小金额 $${TRADE_AGGREGATION_MIN_TOTAL_USD}`
         );
     }
 
@@ -298,7 +298,7 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                 if (trades.length > 0) {
                     Logger.clearLine();
                     Logger.info(
-                        `📥 ${trades.length} new trade${trades.length > 1 ? 's' : ''} detected`
+                        `📥 检测到 ${trades.length} 笔新交易`
                     );
 
                     // Add trades to aggregation buffer
@@ -306,13 +306,13 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                         // Only aggregate BUY trades below minimum threshold
                         if (trade.side === 'BUY' && trade.usdcSize < TRADE_AGGREGATION_MIN_TOTAL_USD) {
                             Logger.info(
-                                `Adding $${trade.usdcSize.toFixed(2)} ${trade.side} trade to aggregation buffer for ${trade.slug || trade.asset}`
+                                `添加 $${trade.usdcSize.toFixed(2)} ${trade.side} 交易到聚合缓冲区 (${trade.slug || trade.asset})`
                             );
                             addToAggregationBuffer(trade);
                         } else {
                             // Execute large trades immediately (not aggregated)
                             Logger.clearLine();
-                            Logger.header(`⚡ IMMEDIATE TRADE (above threshold)`);
+                            Logger.header(`⚡ 立即交易 (超过阈值)`);
                             await doTrading(clobClient, [trade]);
                         }
                     }
@@ -324,7 +324,7 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                 if (readyAggregations.length > 0) {
                     Logger.clearLine();
                     Logger.header(
-                        `⚡ ${readyAggregations.length} AGGREGATED TRADE${readyAggregations.length > 1 ? 'S' : ''} READY`
+                        `⚡ ${readyAggregations.length} 笔聚合交易就绪`
                     );
                     await doAggregatedTrading(clobClient, readyAggregations);
                     lastCheck = Date.now();
@@ -337,7 +337,7 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                         if (bufferedCount > 0) {
                             Logger.waiting(
                                 USER_ADDRESSES.length,
-                                `${bufferedCount} trade group(s) pending`
+                                `${bufferedCount} 组交易等待中`
                             );
                         } else {
                             Logger.waiting(USER_ADDRESSES.length);
@@ -350,7 +350,7 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                 if (trades.length > 0) {
                     Logger.clearLine();
                     Logger.header(
-                        `⚡ ${trades.length} NEW TRADE${trades.length > 1 ? 'S' : ''} TO COPY`
+                        `⚡ ${trades.length} 笔新交易待复制`
                     );
                     await doTrading(clobClient, trades);
                     lastCheck = Date.now();
@@ -363,7 +363,7 @@ const tradeExecutor = async (clobClient: ClobClient) => {
                 }
             }
         } catch (error) {
-            Logger.error(`Error in trade executor loop: ${error}`);
+            Logger.error(`交易执行循环错误: ${error}`);
             // Wait a bit before retrying to avoid tight error loops
             await new Promise((resolve) => setTimeout(resolve, 1000));
         }
